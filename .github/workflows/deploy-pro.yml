@@ -32,3 +32,41 @@ jobs:
       - name: Déploiement GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  deploy-runner:
+    needs: deploy-pages
+    runs-on: [self-hosted, Windows, X64]
+
+    steps:
+      - name: Récupération du code
+        uses: actions/checkout@v5
+
+      - name: Copier le site sur le PC
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\site
+          Copy-Item index.html C:\site\index.html -Force
+
+      - name: Lancer un mini serveur HTTP local
+        shell: powershell
+        run: |
+          $job = Start-Job -ScriptBlock {
+            $listener = New-Object System.Net.HttpListener
+            $listener.Prefixes.Add("http://localhost:8000/")
+            $listener.Start()
+
+            $context = $listener.GetContext()
+            $content = Get-Content "C:\site\index.html" -Raw
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
+
+            $context.Response.ContentType = "text/html; charset=utf-8"
+            $context.Response.ContentLength64 = $bytes.Length
+            $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+            $context.Response.OutputStream.Close()
+
+            $listener.Stop()
+          }
+
+          Start-Sleep -Seconds 2
+          curl.exe http://localhost:8000 | Select-String "TP DevOps"
+          Receive-Job $job -Wait -AutoRemoveJob
